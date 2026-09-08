@@ -1,0 +1,14 @@
+{
+  "name": "validades-worker",
+  "main": "worker.js",
+  "compatibility_date": "2026-09-08",
+  "kv_namespaces": [
+    { 
+      "binding": "CLIENTS_KV", 
+      "id": "dd2982bc582843468cb9ff27bafa2d0f" 
+    }
+  ],
+  "vars": {
+    "APP_PIN": "998877"
+  }
+}
