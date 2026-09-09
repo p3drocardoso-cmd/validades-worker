@@ -1,0 +1,15 @@
+{
+  "name": "Validades — Gestão de Clientes",
+  "short_name": "Validades",
+  "description": "Datas de clientes, sempre por ordem de urgência",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#10151a",
+  "theme_color": "#10151a",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
