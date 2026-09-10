@@ -33,7 +33,13 @@ async function checkPinWithLockout(request, env) {
 
   const pin = request.headers.get('x-app-pin') || '';
   if (pin === env.APP_PIN) {
-    await env.CLIENTS_KV.delete('fails:' + ip).catch(() => {});
+    // Só escreve no KV se realmente houver algo a limpar (evita gastar
+    // quota de escrita em cada pedido bem-sucedido, que é o caso comum).
+    const failKey = 'fails:' + ip;
+    const hasFailRecord = await env.CLIENTS_KV.get(failKey);
+    if (hasFailRecord) {
+      await env.CLIENTS_KV.delete(failKey).catch(() => {});
+    }
     return { ok: true, locked: false };
   }
 
