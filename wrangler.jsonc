@@ -1,0 +1,21 @@
+{
+  "name": "validades-worker",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-08",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "kv_namespaces": [
+    { 
+      "binding": "CLIENTS_KV", 
+      "id": "dd2982bc582843468cb9ff27bafa2d0f" 
+    }
+  ],
+  "vars": {
+    "VAPID_PUBLIC_KEY": "BPCTiuMMsjc7UyjLRHzv32uiyQse4VPTeja3iVkAPRgXzn4ml34FC9LWYlb2YFFI0bKJSfXsrbrOQzbtD0o6EOA"
+  },
+  "triggers": {
+    "crons": ["0 8 * * *"]
+  }
+}
