@@ -158,25 +158,40 @@ async function subKeyFor(endpoint) {
 async function sendToAllSubscriptions(env, payload) {
   const list = await env.CLIENTS_KV.list({ prefix: 'sub:' });
   let sent = 0, removed = 0, failed = 0;
+  const errors = [];
   for (const k of list.keys) {
     const raw = await env.CLIENTS_KV.get(k.name);
     if (!raw) continue;
-    const sub = JSON.parse(raw);
+    let sub;
+    try {
+      sub = JSON.parse(raw);
+    } catch (e) {
+      // Entrada corrompida no KV — remove-a, nunca mais seria utilizável.
+      await env.CLIENTS_KV.delete(k.name).catch(() => {});
+      removed++;
+      continue;
+    }
     try {
       const res = await sendWebPush(sub, payload, env);
       if (res.status === 404 || res.status === 410) {
+        // A subscrição deixou de existir do lado do navegador — limpa-a.
         await env.CLIENTS_KV.delete(k.name);
         removed++;
       } else if (res.ok) {
         sent++;
       } else {
+        // Outros erros (403, 413, 429, 5xx...) não significam que a
+        // subscrição é inválida — pode ser um problema temporário ou nosso.
+        // Não apaga, só regista a falha.
         failed++;
+        if (errors.length < 5) errors.push(`HTTP ${res.status}`);
       }
     } catch (e) {
       failed++;
+      if (errors.length < 5) errors.push(String(e && e.message || e));
     }
   }
-  return { sent, removed, failed, total: list.keys.length };
+  return { sent, removed, failed, total: list.keys.length, errors };
 }
 
 // ===== Verificação diária (Cron) =====
@@ -218,7 +233,10 @@ export default {
         const auth = await checkPinWithLockout(request, env);
         if (!auth.ok) return unauthorized(auth.locked);
         const data = await env.CLIENTS_KV.get('clients');
-        return new Response(data || '[]', { headers: { 'Content-Type': 'application/json' } });
+        const version = (await env.CLIENTS_KV.get('clients_version')) || '0';
+        return new Response(data || '[]', {
+          headers: { 'Content-Type': 'application/json', 'X-Data-Version': version }
+        });
       }
       if (request.method === 'POST') {
         const auth = await checkPinWithLockout(request, env);
@@ -228,8 +246,31 @@ export default {
           return new Response(JSON.stringify({ error: 'invalid json' }), { status: 400 });
         }
         if (!Array.isArray(body)) return new Response(JSON.stringify({ error: 'expected array' }), { status: 400 });
+
+        // Validação básica de cada cliente antes de gravar — protege contra
+        // dados corrompidos ou malformados chegarem a substituir o ficheiro todo.
+        const isValid = body.every(item =>
+          item && typeof item === 'object' &&
+          typeof item.name === 'string' && item.name.trim().length > 0 &&
+          typeof item.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(item.date)
+        );
+        if (!isValid) {
+          return new Response(JSON.stringify({ error: 'invalid client data' }), { status: 400 });
+        }
+
+        // Deteção de conflito: se outro aparelho gravou dados mais recentes
+        // desde a última vez que este aparelho os leu, recusa e avisa —
+        // em vez de simplesmente apagar silenciosamente o trabalho do outro.
+        const clientVersion = request.headers.get('x-client-version') || '0';
+        const serverVersion = (await env.CLIENTS_KV.get('clients_version')) || '0';
+        if (clientVersion !== serverVersion) {
+          return new Response(JSON.stringify({ error: 'conflict', serverVersion }), { status: 409 });
+        }
+
+        const newVersion = String(Date.now());
         await env.CLIENTS_KV.put('clients', JSON.stringify(body));
-        return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
+        await env.CLIENTS_KV.put('clients_version', newVersion);
+        return new Response(JSON.stringify({ ok: true, version: newVersion }), { headers: { 'Content-Type': 'application/json' } });
       }
       return new Response('Method not allowed', { status: 405 });
     }
