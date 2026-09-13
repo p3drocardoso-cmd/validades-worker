@@ -223,85 +223,105 @@ async function checkExpiringAndNotify(env) {
 
 // ===== Worker =====
 
-export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
-    const path = url.pathname;
+const SECURITY_HEADERS = {
+  'X-Frame-Options': 'DENY',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'Content-Security-Policy': "frame-ancestors 'none'"
+};
 
-    if (path === '/api/clients') {
-      if (request.method === 'GET') {
-        const auth = await checkPinWithLockout(request, env);
-        if (!auth.ok) return unauthorized(auth.locked);
-        const data = await env.CLIENTS_KV.get('clients');
-        const version = (await env.CLIENTS_KV.get('clients_version')) || '0';
-        return new Response(data || '[]', {
-          headers: { 'Content-Type': 'application/json', 'X-Data-Version': version }
-        });
-      }
-      if (request.method === 'POST') {
-        const auth = await checkPinWithLockout(request, env);
-        if (!auth.ok) return unauthorized(auth.locked);
-        let body;
-        try { body = await request.json(); } catch (e) {
-          return new Response(JSON.stringify({ error: 'invalid json' }), { status: 400 });
-        }
-        if (!Array.isArray(body)) return new Response(JSON.stringify({ error: 'expected array' }), { status: 400 });
+function withSecurityHeaders(response) {
+  const newResponse = new Response(response.body, response);
+  for (const [k, v] of Object.entries(SECURITY_HEADERS)) {
+    newResponse.headers.set(k, v);
+  }
+  return newResponse;
+}
 
-        // Validação básica de cada cliente antes de gravar — protege contra
-        // dados corrompidos ou malformados chegarem a substituir o ficheiro todo.
-        const isValid = body.every(item =>
-          item && typeof item === 'object' &&
-          typeof item.name === 'string' && item.name.trim().length > 0 &&
-          typeof item.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(item.date)
-        );
-        if (!isValid) {
-          return new Response(JSON.stringify({ error: 'invalid client data' }), { status: 400 });
-        }
+async function handleRequest(request, env) {
+  const url = new URL(request.url);
+  const path = url.pathname;
 
-        // Deteção de conflito: se outro aparelho gravou dados mais recentes
-        // desde a última vez que este aparelho os leu, recusa e avisa —
-        // em vez de simplesmente apagar silenciosamente o trabalho do outro.
-        const clientVersion = request.headers.get('x-client-version') || '0';
-        const serverVersion = (await env.CLIENTS_KV.get('clients_version')) || '0';
-        if (clientVersion !== serverVersion) {
-          return new Response(JSON.stringify({ error: 'conflict', serverVersion }), { status: 409 });
-        }
-
-        const newVersion = String(Date.now());
-        await env.CLIENTS_KV.put('clients', JSON.stringify(body));
-        await env.CLIENTS_KV.put('clients_version', newVersion);
-        return new Response(JSON.stringify({ ok: true, version: newVersion }), { headers: { 'Content-Type': 'application/json' } });
-      }
-      return new Response('Method not allowed', { status: 405 });
-    }
-
-    if (path === '/api/subscribe' && request.method === 'POST') {
+  if (path === '/api/clients') {
+    if (request.method === 'GET') {
       const auth = await checkPinWithLockout(request, env);
       if (!auth.ok) return unauthorized(auth.locked);
-      let sub;
-      try { sub = await request.json(); } catch (e) {
+      const data = await env.CLIENTS_KV.get('clients');
+      const version = (await env.CLIENTS_KV.get('clients_version')) || '0';
+      return new Response(data || '[]', {
+        headers: { 'Content-Type': 'application/json', 'X-Data-Version': version }
+      });
+    }
+    if (request.method === 'POST') {
+      const auth = await checkPinWithLockout(request, env);
+      if (!auth.ok) return unauthorized(auth.locked);
+      let body;
+      try { body = await request.json(); } catch (e) {
         return new Response(JSON.stringify({ error: 'invalid json' }), { status: 400 });
       }
-      if (!sub || !sub.endpoint || !sub.keys) {
-        return new Response(JSON.stringify({ error: 'invalid subscription' }), { status: 400 });
+      if (!Array.isArray(body)) return new Response(JSON.stringify({ error: 'expected array' }), { status: 400 });
+
+      // Validação básica de cada cliente antes de gravar — protege contra
+      // dados corrompidos ou malformados chegarem a substituir o ficheiro todo.
+      const isValid = body.every(item =>
+        item && typeof item === 'object' &&
+        typeof item.name === 'string' && item.name.trim().length > 0 &&
+        typeof item.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(item.date)
+      );
+      if (!isValid) {
+        return new Response(JSON.stringify({ error: 'invalid client data' }), { status: 400 });
       }
-      const key = await subKeyFor(sub.endpoint);
-      await env.CLIENTS_KV.put(key, JSON.stringify(sub));
-      return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
-    }
 
-    // Endpoint manual para testar já, sem esperar pela verificação diária.
-    if (path === '/api/test-push') {
-      const auth = await checkPinWithLockout(request, env);
-      if (!auth.ok) return unauthorized(auth.locked);
-      const result = await sendToAllSubscriptions(env, {
-        title: 'Teste — Validades',
-        body: 'Se estás a ver isto, as notificações estão a funcionar.'
-      });
-      return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
-    }
+      // Deteção de conflito: se outro aparelho gravou dados mais recentes
+      // desde a última vez que este aparelho os leu, recusa e avisa —
+      // em vez de simplesmente apagar silenciosamente o trabalho do outro.
+      const clientVersion = request.headers.get('x-client-version') || '0';
+      const serverVersion = (await env.CLIENTS_KV.get('clients_version')) || '0';
+      if (clientVersion !== serverVersion) {
+        return new Response(JSON.stringify({ error: 'conflict', serverVersion }), { status: 409 });
+      }
 
-    return env.ASSETS.fetch(request);
+      const newVersion = String(Date.now());
+      await env.CLIENTS_KV.put('clients', JSON.stringify(body));
+      await env.CLIENTS_KV.put('clients_version', newVersion);
+      return new Response(JSON.stringify({ ok: true, version: newVersion }), { headers: { 'Content-Type': 'application/json' } });
+    }
+    return new Response('Method not allowed', { status: 405 });
+  }
+
+  if (path === '/api/subscribe' && request.method === 'POST') {
+    const auth = await checkPinWithLockout(request, env);
+    if (!auth.ok) return unauthorized(auth.locked);
+    let sub;
+    try { sub = await request.json(); } catch (e) {
+      return new Response(JSON.stringify({ error: 'invalid json' }), { status: 400 });
+    }
+    if (!sub || !sub.endpoint || !sub.keys) {
+      return new Response(JSON.stringify({ error: 'invalid subscription' }), { status: 400 });
+    }
+    const key = await subKeyFor(sub.endpoint);
+    await env.CLIENTS_KV.put(key, JSON.stringify(sub));
+    return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
+  }
+
+  // Endpoint manual para testar já, sem esperar pela verificação diária.
+  if (path === '/api/test-push') {
+    const auth = await checkPinWithLockout(request, env);
+    if (!auth.ok) return unauthorized(auth.locked);
+    const result = await sendToAllSubscriptions(env, {
+      title: 'Teste — Validades',
+      body: 'Se estás a ver isto, as notificações estão a funcionar.'
+    });
+    return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
+  }
+
+  return env.ASSETS.fetch(request);
+}
+
+export default {
+  async fetch(request, env) {
+    const response = await handleRequest(request, env);
+    return withSecurityHeaders(response);
   },
 
   async scheduled(event, env, ctx) {
