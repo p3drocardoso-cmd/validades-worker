@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#10151a">
+<title>Validades — Gestão de Clientes</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<style>
+  :root {
+    --ink-900: #10151a;
+    --ink-800: #171f25;
+    --ink-700: #212b32;
+    --ink-600: #2c3941;
+    --line: #2a353d;
+    --text: #e9ecec;
+    --text-muted: #8fa0a8;
+    --teal: #3fa796;
+    --amber: #f2a93b;
+    --red: #e5484d;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; background: var(--ink-900); color: var(--text); font-family: 'Inter', sans-serif; }
+  
+  #frame {
+    max-width: 480px; margin: 0 auto; height: 100dvh; display: flex; flex-direction: column;
+    background: radial-gradient(500px 250px at 50% -50px, rgba(63,167,150,.12), transparent 70%), var(--ink-800);
+    box-shadow: 0 0 40px rgba(0,0,0,.5);
+  }
+
+  header { padding: 16px 18px 12px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
+  header h1 { font-family: 'Space Grotesk', sans-serif; font-size: 20px; font-weight: 700; margin: 0; }
+  .header-actions { display: flex; gap: 4px; }
+
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 12px 18px; }
+  .stat { background: var(--ink-700); border: 1px solid var(--line); border-radius: 10px; padding: 8px 6px; text-align: center; cursor: pointer; }
+  .stat .n { font-family: 'Space Grotesk', sans-serif; font-size: 20px; font-weight: 700; }
+  .stat .l { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+  .stat.critical .n { color: var(--red); }
+  .stat.warning .n { color: var(--amber); }
+  .stat.ok .n { color: var(--teal); }
+
+  .searchrow { display: flex; gap: 8px; padding: 0 18px 10px; }
+  .searchbar { flex: 1; }
+  .searchbar input { width: 100%; background: var(--ink-700); border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; color: var(--text); font-size: 14px; outline: none; }
+  .searchbar input:focus { border-color: var(--teal); }
+
+  #list { flex: 1; overflow-y: auto; padding: 0 18px 80px; display: flex; flex-direction: column; gap: 8px; }
+  
+  .card {
+    background: var(--ink-700); border: 1px solid var(--line); border-left: 4px solid var(--ink-600);
+    border-radius: var(--radius); padding: 12px; display: flex; justify-content: space-between; align-items: center;
+  }
+  .card.critical { border-left-color: var(--red); }
+  .card.warning { border-left-color: var(--amber); }
+  .card.ok { border-left-color: var(--teal); }
+
+  .card .info { flex: 1; min-width: 0; padding-right: 8px; }
+  .card .name { font-weight: 600; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card .date { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+  
+  .card .actions { display: flex; gap: 4px; }
+  .icon-btn { background: none; border: none; color: var(--text-muted); padding: 8px; border-radius: 6px; cursor: pointer; min-width: 36px; min-height: 36px; display: flex; align-items: center; justify-content: center; }
+  .icon-btn:hover { background: var(--ink-600); color: var(--text); }
+  .icon-btn svg { width: 18px; height: 18px; display: block; }
+
+  .fab {
+    position: fixed; right: max(20px, calc((100vw - 480px) / 2 + 20px)); bottom: 20px;
+    width: 52px; height: 52px; border-radius: 50%; background: var(--teal); border: none;
+    display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 14px rgba(63,167,150,.4);
+  }
+  .fab svg { width: 24px; height: 24px; color: var(--ink-900); stroke-width: 2.5; }
+
+  @media print {
+    #frame { max-width: 100%; height: auto; background: white; color: black; box-shadow: none; }
+    .fab, .header-actions, .searchrow, .actions, .stats { display: none !important; }
+    .card { border: 1px solid #ccc; background: white; color: black; margin-bottom: 6px; page-break-inside: avoid; }
+    .card .date { color: #555; }
+  }
+</style>
+</head>
+<body>
+
+<div id="frame">
+  <header>
+    <div>
+      <h1>Validades</h1>
+      <span id="syncStatus" style="font-size:11px; color:var(--text-muted)">A carregar...</span>
+    </div>
+    <div class="header-actions">
+      <button class="icon-btn" onclick="window.print()" title="Imprimir / Guardar PDF">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="stats">
+    <div class="stat" onclick="filterBy('all')"><div class="n" id="statTotal">0</div><div class="l">Total</div></div>
+    <div class="stat critical" onclick="filterBy('critical')"><div class="n" id="statCritical">0</div><div class="l">Expirados</div></div>
+    <div class="stat warning" onclick="filterBy('warning')"><div class="n" id="statWarning">0</div><div class="l">Aviso</div></div>
+    <div class="stat ok" onclick="filterBy('ok')"><div class="n" id="statOk">0</div><div class="l">OK</div></div>
+  </div>
+
+  <div class="searchrow">
+    <div class="searchbar">
+      <input type="text" id="search" placeholder="Procurar cliente..." oninput="render()">
+    </div>
+  </div>
+
+  <div id="list"></div>
+
+  <button class="fab" onclick="addNewClient()" aria-label="Adicionar Cliente">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 5v14M5 12h14"/></svg>
+  </button>
+</div>
+
+<script>
+let clients = [];
+let currentFilter = 'all';
+
+function escapeHtml(str) {
+  return String(str || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+function getStatusClass(dateStr) {
+  if (!dateStr) return 'ok';
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  const target = new Date(dateStr);
+  const diffDays = Math.ceil((target - today) / (1000 * 60 * 60 * 24));
+
+  if (diffDays <= 0) return 'critical';
+  if (diffDays <= 30) return 'warning';
+  return 'ok';
+}
+
+function updateStats() {
+  let total = 0, critical = 0, warning = 0, ok = 0;
+  clients.forEach(c => {
+    if (c.deleted) return;
+    total++;
+    const st = getStatusClass(c.date);
+    if (st === 'critical') critical++;
+    else if (st === 'warning') warning++;
+    else ok++;
+  });
+
+  document.getElementById('statTotal').textContent = total;
+  document.getElementById('statCritical').textContent = critical;
+  document.getElementById('statWarning').textContent = warning;
+  document.getElementById('statOk').textContent = ok;
+}
+
+function filterBy(type) {
+  currentFilter = type;
+  render();
+}
+
+function render() {
+  const q = document.getElementById('search').value.trim().toLowerCase();
+  const list = document.getElementById('list');
+  list.innerHTML = '';
+
+  const filtered = clients.filter(c => {
+    if (c.deleted) return false;
+    const matchesSearch = c.name.toLowerCase().includes(q);
+    const st = getStatusClass(c.date);
+    const matchesFilter = currentFilter === 'all' || st === currentFilter;
+    return matchesSearch && matchesFilter;
+  });
+
+  if (filtered.length === 0) {
+    list.innerHTML = '<div style="text-align:center; padding: 40px 0; color: var(--text-muted); font-size: 14px;">Nenhum cliente encontrado.</div>';
+    return;
+  }
+
+  filtered.forEach(c => {
+    const st = getStatusClass(c.date);
+    const card = document.createElement('div');
+    card.className = `card ${st}`;
+    card.innerHTML = `
+      <div class="info">
+        <div class="name">${escapeHtml(c.name)}</div>
+        <div class="date">${escapeHtml(c.date || 'Sem data')}</div>
+      </div>
+      <div class="actions">
+        <button class="icon-btn" onclick="editClient('${c.id}')" title="Editar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+        </button>
+      </div>
+    `;
+    list.appendChild(card);
+  });
+
+  updateStats();
+}
+
+function addNewClient() {
+  const name = prompt("Nome do cliente:");
+  if (!name) return;
+  const date = prompt("Data de validade (YYYY-MM-DD):");
+  
+  clients.push({
+    id: Date.now().toString(),
+    name: name,
+    date: date || '',
+    deleted: false
+  });
+  
+  render();
+}
+
+function editClient(id) {
+  const client = clients.find(c => c.id === id);
+  if (!client) return;
+  
+  const name = prompt("Editar nome:", client.name);
+  if (name !== null) client.name = name;
+  
+  const date = prompt("Editar data (YYYY-MM-DD):", client.date);
+  if (date !== null) client.date = date;
+  
+  render();
+}
+
+// Inicialização
+document.getElementById('syncStatus').textContent = 'Sincronizado';
+render();
+</script>
+</body>
+</html>
